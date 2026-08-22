@@ -89,6 +89,15 @@ def _get_user_or_404(conn, user_id: int) -> User:
     return _user_or_404(conn.execute(SELECT_USER, (user_id,)).fetchone(), user_id)
 
 
+def _get_users_or_404() -> [User]:
+    users = []
+    for id, user in _users.items():
+        users.append(user)
+    if users == []:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No users found in the database")
+    return users
+
+
 @app.post("/users", status_code=status.HTTP_201_CREATED)
 def create_user(user: User, conn=Depends(get_conn)) -> User:
     try:
@@ -104,6 +113,11 @@ def create_user(user: User, conn=Depends(get_conn)) -> User:
 @app.get("/users/{user_id}")
 def get_user(user_id: int, conn=Depends(get_conn)) -> User:
     return _get_user_or_404(conn, user_id)
+
+
+@app.get("/users")
+def get_users():
+    return _get_users_or_404()
 
 
 def _reject_conflict(conn, current: User, incoming: User) -> None:
