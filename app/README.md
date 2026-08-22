@@ -22,6 +22,10 @@ docker compose up --build
 The API is on `http://localhost:8000`, Postgres on `localhost:5432`. The API waits for Postgres
 to accept connections before it starts serving, and creates the `users` table on startup.
 
+Credentials live in `.env`, committed because they are fake and only reachable on your machine.
+Both the db container and the API's `DATABASE_URL` read from it, so there is one copy of each
+value.
+
 Stop and remove both containers:
 
 ```bash
@@ -36,7 +40,8 @@ source .venv/bin/activate
 pip install -r requirements.txt
 
 # required, the app fails fast without it. Point it at the Compose Postgres:
-export DATABASE_URL=postgresql://appuser:apppassword@localhost:5432/appdb
+set -a; . ./.env; set +a
+export DATABASE_URL="postgresql://$POSTGRES_USER:$POSTGRES_PASSWORD@localhost:5432/$POSTGRES_DB"
 uvicorn app.main:app --reload
 ```
 
@@ -58,6 +63,13 @@ Users survive API restarts. They are removed only by `DELETE /users/{id}` or by 
 `db-data` volume.
 
 ## Prove it persists
+
+```bash
+./scripts/prove-persistence.sh
+```
+
+It seeds a user, restarts the API, takes the stack down and back up, and fails loudly if the user
+stops coming back. Same thing by hand:
 
 ```bash
 curl -X POST localhost:8000/users -H 'content-type: application/json' \

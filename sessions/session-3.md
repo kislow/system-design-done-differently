@@ -97,6 +97,9 @@ messages as session 2. Storage moved; the client cannot tell.
   dict never had that limit and the API contract should not gain one by accident.
 - **No `UNIQUE` on email.** Session 2 allowed two users to share an email. Adding the constraint
   here would have been a silent contract change. Duplicate handling is session 4's topic.
+- **Credentials in a committed `.env`.** They are fake and local-only, and committing them keeps
+  `docker compose up` working on a fresh clone. The point is that the password exists in one place
+  rather than in both the db container and the API's DSN, where the two can drift.
 - **A pool, not a connect per request.** A connect per request pays a TCP and auth handshake every
   call. The pool is also the natural place to make startup wait for Postgres.
 
@@ -129,4 +132,5 @@ See [`../app/README.md`](../app/README.md), including the "Prove it persists" se
   win, and why?
 - Should two users be allowed to share an email? If not, which status code, and what error body?
 - Should `PUT`/`PATCH` require auth, the question session 2 left open?
-- Nothing tests any of this yet. The persistence proof is still a human running curl.
+- `scripts/prove-persistence.sh` checks durability and nothing else. There are no tests for the
+  endpoint contract itself, so every status code above is still verified by hand.
