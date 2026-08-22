@@ -1,10 +1,11 @@
 # Deployment Request Service
 
-The running service for this series. An in-memory, FastAPI CRUD API for users, implementing
-session 1's HLD (`../diagrams/session1-hla-method-req-res.png`): client → API → datastore.
+The running service for this series. A FastAPI CRUD API for users, storing them in PostgreSQL,
+implementing session 1's HLD (`../diagrams/session1-hla-method-req-res.png`): client → API →
+datastore. All three boxes are now on the request path.
 
 Session write-ups live in `../sessions/`: start with
-[`../sessions/session-2.md`](../sessions/session-2.md) for what this version of the service does
+[`../sessions/session-3.md`](../sessions/session-3.md) for what this version of the service does
 and why.
 
 ## Requirements
@@ -18,9 +19,8 @@ and why.
 docker compose up --build
 ```
 
-The API is on `http://localhost:8000`. A Postgres container also comes up on `localhost:5432`:
-it's the datastore box from the diagram, but the app doesn't read/write to it yet; storage is
-still the in-memory dict described below. Persistence lands in a later session.
+The API is on `http://localhost:8000`, Postgres on `localhost:5432`. The API waits for Postgres
+to accept connections before it starts serving, and creates the `users` table on startup.
 
 Stop and remove both containers:
 
@@ -34,16 +34,45 @@ docker compose down
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+
+# required, the app fails fast without it. Point it at the Compose Postgres:
+export DATABASE_URL=postgresql://appuser:apppassword@localhost:5432/appdb
 uvicorn app.main:app --reload
 ```
 
 ## Data model
 
-Storage is a process-local in-memory dict; restarting the service clears all users.
+PostgreSQL is the source of truth. One user is one row in the `users` table:
+
+| Column  | Type   | Notes           |
+|---------|--------|-----------------|
+| `id`    | BIGINT | primary key     |
+| `name`  | TEXT   | not null        |
+| `email` | TEXT   | not null        |
 
 ```json
 {"id": 123, "name": "bob", "email": "bob@coderco.io"}
 ```
+
+Users survive API restarts. They are removed only by `DELETE /users/{id}` or by deleting the
+`db-data` volume.
+
+## Prove it persists
+
+```bash
+curl -X POST localhost:8000/users -H 'content-type: application/json' \
+  -d '{"id":123,"name":"bob","email":"bob@coderco.io"}'
+docker compose restart api
+curl localhost:8000/users/123          # still 200, the row outlived the process
+
+docker compose down                    # keeps the db-data volume
+docker compose up -d
+curl localhost:8000/users/123          # still 200
+
+docker compose exec db psql -U appuser -d appdb -c 'select * from users;'
+```
+
+Deleting the volume (`docker compose down -v`) is the one thing that does clear it.
 
 ## Endpoints
 
@@ -58,7 +87,7 @@ Storage is a process-local in-memory dict; restarting the service clears all use
 ## Auth
 
 `DELETE` requires `Authorization: Bearer <token>`. The token → role mapping is a hardcoded
-in-memory table for the exercise, not real auth:
+table for the exercise, not real auth:
 
 | Token          | Role   | Can delete? |
 |----------------|--------|-------------|

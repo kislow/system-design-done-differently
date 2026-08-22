@@ -32,6 +32,7 @@ or Kubernetes cluster shows up just because a typical diagram has one.
 |---|---|---|
 | 1 | HLD: client, API, datastore, HTTP methods, status codes | [diagram](diagrams/session1-hla-method-req-res.png) |
 | 2 | Session 1's HLD as a running FastAPI service, containerized, role-based auth on delete | [session-2](sessions/session-2.md), [app docs](app/README.md) |
+| 3 | Durable state: Postgres on the request path as the source of truth | [session-3](sessions/session-3.md), [app docs](app/README.md) |
 
 ## Roadmap
 
