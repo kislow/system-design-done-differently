@@ -24,7 +24,8 @@ or Kubernetes cluster shows up just because a typical diagram has one.
 - `app/`: the FastAPI service. See [`app/README.md`](app/README.md) to run it.
 - `diagrams/`: architecture diagrams, one per session.
 - `sessions/`: a short write-up per session, what we built, what we decided, what's next.
-- `Dockerfile`, `docker-compose.yml`: containers for the API and, from session 2, a Postgres datastore.
+- `scripts/`: checks that prove a session's claim, rather than trusting it.
+- `Dockerfile`, `docker-compose.yml`: containers for the API and Postgres.
 
 ## Sessions
 
@@ -34,15 +35,24 @@ or Kubernetes cluster shows up just because a typical diagram has one.
 | 2 | Session 1's HLD as a running FastAPI service, containerized, role-based auth on delete | [session-2](sessions/session-2.md), [app docs](app/README.md) |
 | 3 | Durable state: Postgres on the request path as the source of truth | [session-3](sessions/session-3.md), [app docs](app/README.md) |
 
-## Roadmap
+## What comes next
 
-Participants start with the fundamentals of application communication (clients, APIs, requests
-and responses, HTTP methods, status codes, component and sequence diagrams), then build the first
-version of the service using FastAPI and process-local memory. Later sessions introduce durable
-persistence, API lifecycle and correctness, automated testing and CI, logging and metrics, latency
-and capacity estimation, containers, PostgreSQL, multiple instances, load balancing, rate
-limiting, caching, queues, retries and idempotency, Kubernetes, and failure testing, across 16
-sessions total.
+There is no fixed session count or running order. Each session is motivated by a limitation the
+previous one exposed, so what comes next depends on what breaks first. Publishing a numbered plan
+would contradict the principle below.
+
+Topics on the table, roughly in the order these constraints tend to surface:
+
+- API lifecycle and correctness: validation, error contracts, duplicate handling
+- automated tests and CI
+- logging and metrics, and what "observable" actually requires
+- latency and capacity estimation
+- more than one API instance, and load balancing in front of them
+- caching, and invalidating it
+- queues, retries, and idempotency
+- rate limiting
+- orchestration with Kubernetes
+- deliberate failure testing
 
 ## Core principle
 
