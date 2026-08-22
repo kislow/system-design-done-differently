@@ -115,12 +115,33 @@ Durability is not availability. The API now has a network dependency it did not 
 
 ```bash
 docker compose stop db
-curl -i localhost:8000/users/123   # fails now, where session 2 answered from memory
+curl -i localhost:8000/users/123   # 500 now, where session 2 answered from memory
 ```
 
 Session 2's version could not lose data because it never had any. This version can be unable to
 reach its data. That is a trade we made deliberately, and it is what motivates later sessions on
 replicas, retries, and health checking.
+
+### Run the drill four ways
+
+The interesting part is not the 500, it is what recovery needs. Two separate mechanisms keep the
+API alive, and each one covers a case the other does not.
+
+| Drill | What happens | What is doing the work |
+|---|---|---|
+| `stop db`, then call an endpoint | 500, API process stays up | nothing, this is the failure |
+| `start db`, then call again | 200 within a few seconds | the pool reconnects on its own |
+| `stop db`, `restart api`, `start db` 12s later | API waits, then serves | `pool.open(wait=True, timeout=30)` |
+| same, but `start db` after 45s | startup fails once, container restarts, then serves | `restart: on-failure` |
+
+Ask the room after the third drill whether the API is now immune to the database being down. The
+fourth drill answers it: past the 30 second wait the process gives up and exits, and only the
+restart policy brings it back. Take either mechanism away and a coffee-break-length outage leaves
+a dead API container that does not recover when Postgres returns, which is the version of this we
+started the session with.
+
+Worth pointing at the container state while the third drill runs, because "the API is up but every
+request fails" and "the API is down" look identical from a curl and are different problems.
 
 ## Try it
 
