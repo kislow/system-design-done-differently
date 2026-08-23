@@ -89,13 +89,11 @@ def _get_user_or_404(conn, user_id: int) -> User:
     return _user_or_404(conn.execute(SELECT_USER, (user_id,)).fetchone(), user_id)
 
 
-def _get_users_or_404() -> [User]:
-    users = []
-    for id, user in _users.items():
-        users.append(user)
-    if users == []:
+def _get_users_or_404(conn) -> list[User]:
+    rows = conn.execute("SELECT id, name, email FROM users").fetchall()
+    if not rows:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No users found in the database")
-    return users
+    return [User(id=row[0], name=row[1], email=row[2]) for row in rows]
 
 
 @app.post("/users", status_code=status.HTTP_201_CREATED)
@@ -116,8 +114,8 @@ def get_user(user_id: int, conn=Depends(get_conn)) -> User:
 
 
 @app.get("/users")
-def get_users():
-    return _get_users_or_404()
+def get_users(conn=Depends(get_conn)) -> list[User]:
+    return _get_users_or_404(conn)
 
 
 def _reject_conflict(conn, current: User, incoming: User) -> None:
@@ -160,3 +158,12 @@ def delete_user(user_id: int, conn=Depends(get_conn)) -> dict[str, str]:
     row = conn.execute("DELETE FROM users WHERE id = %s RETURNING id, name, email", (user_id,)).fetchone()
     _user_or_404(row, user_id)
     return {"detail": f"user {user_id} deleted"}
+
+
+@app.delete("/users", dependencies=[Depends(require_role("admin"))])
+def delete_users(conn=Depends(get_conn)) -> dict[str, str]:
+    result = conn.execute("DELETE FROM users RETURNING id")
+    count = len(result.fetchall())
+    return {"detail": f"deleted {count} user(s) from the database"}
+
+
