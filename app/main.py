@@ -89,6 +89,14 @@ def _get_user_or_404(conn, user_id: int) -> User:
     return _user_or_404(conn.execute(SELECT_USER, (user_id,)).fetchone(), user_id)
 
 
+def _get_users(conn) -> list[User]:
+    # unbounded on purpose for now: the response grows with the table, and
+    # pagination is its own session. ORDER BY so repeated calls agree, which an
+    # unordered SELECT does not guarantee.
+    rows = conn.execute("SELECT id, name, email FROM users ORDER BY id").fetchall()
+    return [User(id=row[0], name=row[1], email=row[2]) for row in rows]
+
+
 @app.post("/users", status_code=status.HTTP_201_CREATED)
 def create_user(user: User, conn=Depends(get_conn)) -> User:
     try:
@@ -104,6 +112,11 @@ def create_user(user: User, conn=Depends(get_conn)) -> User:
 @app.get("/users/{user_id}")
 def get_user(user_id: int, conn=Depends(get_conn)) -> User:
     return _get_user_or_404(conn, user_id)
+
+
+@app.get("/users")
+def get_users(conn=Depends(get_conn)) -> list[User]:
+    return _get_users(conn)
 
 
 def _reject_conflict(conn, current: User, incoming: User) -> None:
@@ -146,3 +159,11 @@ def delete_user(user_id: int, conn=Depends(get_conn)) -> dict[str, str]:
     row = conn.execute("DELETE FROM users WHERE id = %s RETURNING id, name, email", (user_id,)).fetchone()
     _user_or_404(row, user_id)
     return {"detail": f"user {user_id} deleted"}
+
+
+@app.delete("/users", dependencies=[Depends(require_role("admin"))])
+def delete_users(conn=Depends(get_conn)) -> dict[str, str]:
+    # rowcount, not len(fetchall()): counting rows should not mean carrying them
+    # all back from Postgres first.
+    count = conn.execute("DELETE FROM users").rowcount
+    return {"detail": f"deleted {count} user(s) from the database"}
