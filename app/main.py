@@ -89,10 +89,8 @@ def _get_user_or_404(conn, user_id: int) -> User:
     return _user_or_404(conn.execute(SELECT_USER, (user_id,)).fetchone(), user_id)
 
 
-def _get_users_or_404(conn) -> list[User]:
+def _get_users(conn) -> list[User]:
     rows = conn.execute("SELECT id, name, email FROM users").fetchall()
-    if not rows:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "No users found in the database")
     return [User(id=row[0], name=row[1], email=row[2]) for row in rows]
 
 
@@ -115,7 +113,7 @@ def get_user(user_id: int, conn=Depends(get_conn)) -> User:
 
 @app.get("/users")
 def get_users(conn=Depends(get_conn)) -> list[User]:
-    return _get_users_or_404(conn)
+    return _get_users(conn)
 
 
 def _reject_conflict(conn, current: User, incoming: User) -> None:
