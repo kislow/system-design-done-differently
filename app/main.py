@@ -1,7 +1,7 @@
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, Header, HTTPException, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Response, status
 from psycopg.errors import UniqueViolation
 from psycopg_pool import ConnectionPool
 from pydantic import BaseModel
@@ -73,6 +73,7 @@ class UserUpdate(BaseModel):
 
 
 SELECT_USER = "SELECT id, name, email FROM users WHERE id = %s"
+EMAIL_OWNER = "SELECT id FROM users WHERE email = %s AND id <> %s"
 UPDATE_USER = "UPDATE users SET name = %s, email = %s WHERE id = %s RETURNING id, name, email"
 
 
@@ -105,13 +106,31 @@ def get_user(user_id: int, conn=Depends(get_conn)) -> User:
     return _get_user_or_404(conn, user_id)
 
 
-@app.put("/users/{user_id}")
-def replace_user(user_id: int, user: User, conn=Depends(get_conn)) -> User:
-    _get_user_or_404(conn, user_id)
-    if user.id != user_id:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "body id must match path id")
+def _reject_conflict(conn, current: User, incoming: User) -> None:
+    # the rules that need the stored user to decide, so they run after the 404.
+    # A rejection here is 409, not 400: the body is well formed, it disagrees
+    # with the state the server already holds.
+    conflicts = []
+    if incoming.id != current.id:
+        conflicts.append(f"id is immutable, {current.id} cannot become {incoming.id}")
+    # no UNIQUE on email yet, so two concurrent PUTs can both read "free" and
+    # both write. This closes the sequential case only, deliberately.
+    owner = conn.execute(EMAIL_OWNER, (incoming.email, current.id)).fetchone()
+    if owner is not None:
+        conflicts.append(f"email {incoming.email} already belongs to user {owner[0]}")
+    if conflicts:
+        raise HTTPException(status.HTTP_409_CONFLICT, "; ".join(conflicts))
+
+
+@app.put("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+def replace_user(user_id: int, user: User, conn=Depends(get_conn)) -> Response:
+    current = _get_user_or_404(conn, user_id)
+    _reject_conflict(conn, current, user)
     row = conn.execute(UPDATE_USER, (user.name, user.email, user_id)).fetchone()
-    return _user_or_404(row, user_id)
+    # the row is dropped, not returned, but it still proves the UPDATE hit a row
+    # rather than silently matching nothing.
+    _user_or_404(row, user_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @app.patch("/users/{user_id}")
