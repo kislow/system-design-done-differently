@@ -90,7 +90,10 @@ def _get_user_or_404(conn, user_id: int) -> User:
 
 
 def _get_users(conn) -> list[User]:
-    rows = conn.execute("SELECT id, name, email FROM users").fetchall()
+    # unbounded on purpose for now: the response grows with the table, and
+    # pagination is its own session. ORDER BY so repeated calls agree, which an
+    # unordered SELECT does not guarantee.
+    rows = conn.execute("SELECT id, name, email FROM users ORDER BY id").fetchall()
     return [User(id=row[0], name=row[1], email=row[2]) for row in rows]
 
 
@@ -160,8 +163,7 @@ def delete_user(user_id: int, conn=Depends(get_conn)) -> dict[str, str]:
 
 @app.delete("/users", dependencies=[Depends(require_role("admin"))])
 def delete_users(conn=Depends(get_conn)) -> dict[str, str]:
-    result = conn.execute("DELETE FROM users RETURNING id")
-    count = len(result.fetchall())
+    # rowcount, not len(fetchall()): counting rows should not mean carrying them
+    # all back from Postgres first.
+    count = conn.execute("DELETE FROM users").rowcount
     return {"detail": f"deleted {count} user(s) from the database"}
-
-

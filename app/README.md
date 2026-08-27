@@ -92,11 +92,11 @@ Deleting the volume (`docker compose down -v`) is the one thing that does clear 
 |--------|---------------|--------------|--------------------------------|-----------|--------------------------------------------|
 | POST   | `/users`      | none         | full user                     | 201       | 400 if `id` already exists                 |
 | GET    | `/users/{id}` | none         | none                           | 200       | 404 if not found                           |
-| GET    | `/users`      | none         | none                           | 200       |                           |
+| GET    | `/users`      | none         | none                           | 200       | none, `[]` when empty                      |
 | PUT    | `/users/{id}` | none         | full user, `id` must match path | 204       | 404 if not found, 409 on id change or email owned by another user |
 | PATCH  | `/users/{id}` | none         | partial `{name?, email?}`     | 200       | 404 if not found                           |
 | DELETE | `/users/{id}` | admin token  | none                           | 200       | 401 no/invalid token, 403 wrong role, 404 if not found |
-| DELETE | `/users`      | admin token  | none                           | 200       | 401 no/invalid token, 403 wrong role, 404 if not found |
+| DELETE | `/users`      | admin token  | none                           | 200       | 401 no/invalid token, 403 wrong role        |
 
 
 ## Auth
