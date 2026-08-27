@@ -92,7 +92,7 @@ Deleting the volume (`docker compose down -v`) is the one thing that does clear 
 |--------|---------------|--------------|--------------------------------|-----------|--------------------------------------------|
 | POST   | `/users`      | none         | full user                     | 201       | 400 if `id` already exists                 |
 | GET    | `/users/{id}` | none         | none                           | 200       | 404 if not found                           |
-| PUT    | `/users/{id}` | none         | full user, `id` must match path | 200     | 400 on id mismatch, 404 if not found        |
+| PUT    | `/users/{id}` | none         | full user, `id` must match path | 204       | 404 if not found, 409 on id change or email owned by another user |
 | PATCH  | `/users/{id}` | none         | partial `{name?, email?}`     | 200       | 404 if not found                           |
 | DELETE | `/users/{id}` | admin token  | none                           | 200       | 401 no/invalid token, 403 wrong role, 404 if not found |
 
@@ -120,9 +120,17 @@ curl localhost:8000/users/123
 curl -X PATCH localhost:8000/users/123 -H 'content-type: application/json' \
   -d '{"email":"new@coderco.io"}'
 
-# full overwrite
-curl -X PUT localhost:8000/users/123 -H 'content-type: application/json' \
+# full overwrite: 204, no body
+curl -i -X PUT localhost:8000/users/123 -H 'content-type: application/json' \
   -d '{"id":123,"name":"bob b","email":"bob@coderco.io"}'
+
+# conflict, changing an immutable id: 409
+curl -i -X PUT localhost:8000/users/123 -H 'content-type: application/json' \
+  -d '{"id":124,"name":"bob b","email":"bob@coderco.io"}'
+
+# conflict, email already belongs to another user: 409
+curl -i -X PUT localhost:8000/users/123 -H 'content-type: application/json' \
+  -d '{"id":123,"name":"bob b","email":"someone-elses@coderco.io"}'
 
 # delete, no token: 401
 curl -i -X DELETE localhost:8000/users/123
