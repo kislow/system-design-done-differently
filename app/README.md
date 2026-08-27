@@ -59,7 +59,7 @@ PostgreSQL is the source of truth. One user is one row in the `users` table:
 {"id": 123, "name": "bob", "email": "bob@coderco.io"}
 ```
 
-Users survive API restarts. They are removed only by `DELETE /users/{id}` or by deleting the
+Users survive API restarts. They are removed only by `DELETE /users/{id}`, `DELETE /users` or by deleting the
 `db-data` volume.
 
 ## Prove it persists
@@ -92,9 +92,12 @@ Deleting the volume (`docker compose down -v`) is the one thing that does clear 
 |--------|---------------|--------------|--------------------------------|-----------|--------------------------------------------|
 | POST   | `/users`      | none         | full user                     | 201       | 400 if `id` already exists                 |
 | GET    | `/users/{id}` | none         | none                           | 200       | 404 if not found                           |
+| GET    | `/users`      | none         | none                           | 200       |                           |
 | PUT    | `/users/{id}` | none         | full user, `id` must match path | 204       | 404 if not found, 409 on id change or email owned by another user |
 | PATCH  | `/users/{id}` | none         | partial `{name?, email?}`     | 200       | 404 if not found                           |
 | DELETE | `/users/{id}` | admin token  | none                           | 200       | 401 no/invalid token, 403 wrong role, 404 if not found |
+| DELETE | `/users`      | admin token  | none                           | 200       | 401 no/invalid token, 403 wrong role, 404 if not found |
+
 
 ## Auth
 
@@ -114,7 +117,10 @@ curl -X POST localhost:8000/users -H 'content-type: application/json' \
   -d '{"id":123,"name":"bob","email":"bob@coderco.io"}'
 
 # read
-curl localhost:8000/users/123
+curl -X GET localhost:8000/users/123
+
+# read all users
+curl -X GET localhost:8000/users
 
 # partial update
 curl -X PATCH localhost:8000/users/123 -H 'content-type: application/json' \
@@ -140,6 +146,9 @@ curl -i -X DELETE localhost:8000/users/123 -H 'Authorization: Bearer viewer-toke
 
 # delete, admin: 200
 curl -i -X DELETE localhost:8000/users/123 -H 'Authorization: Bearer admin-token'
+
+# delete all users, admin: 200
+curl -i -X DELETE localhost:8000/users -H 'Authorization: Bearer admin-token'
 
 # not found
 curl -i localhost:8000/users/999
