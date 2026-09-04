@@ -35,6 +35,7 @@ or Kubernetes cluster shows up just because a typical diagram has one.
 | 2 | Session 1's HLD as a running FastAPI service, containerized, role-based auth on delete | [session-2](sessions/session-2.md), [app docs](app/README.md) |
 | 3 | Durable state: Postgres on the request path as the source of truth | [session-3](sessions/session-3.md), [app docs](app/README.md) |
 | 4 | Error contracts: 422 / 404 / 409 gates on `PUT`, 204 on success | [session-4](sessions/session-4.md), [app docs](app/README.md) |
+| 5 | The first automated test: an independent check that a missing user is a 404 | [session-5](sessions/session-5.md), [app docs](app/README.md) |
 
 ## What comes next
 
