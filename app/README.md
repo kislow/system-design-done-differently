@@ -86,6 +86,23 @@ docker compose exec db psql -U appuser -d appdb -c 'select * from users;'
 
 Deleting the volume (`docker compose down -v`) is the one thing that does clear it.
 
+## Run the tests
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements-dev.txt
+
+pytest -q
+```
+
+No Postgres needed. The tests override the `get_conn` dependency and drive the API through
+`TestClient`, which skips the lifespan, so the connection pool is never opened. See
+[`../sessions/session-5.md`](../sessions/session-5.md) for what that does and does not prove.
+
+It is `-m pytest`, not `-m test`: `test` is CPython's own stdlib suite and will happily run for
+minutes.
+
 ## Endpoints
 
 | Method | Path          | Auth         | Body                          | Success   | Errors                                    |
