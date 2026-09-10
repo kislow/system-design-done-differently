@@ -36,6 +36,7 @@ or Kubernetes cluster shows up just because a typical diagram has one.
 | 3 | Durable state: Postgres on the request path as the source of truth | [session-3](sessions/session-3.md), [app docs](app/README.md) |
 | 4 | Error contracts: 422 / 404 / 409 gates on `PUT`, 204 on success | [session-4](sessions/session-4.md), [app docs](app/README.md) |
 | 5 | The first automated test: an independent check that a missing user is a 404 | [session-5](sessions/session-5.md), [app docs](app/README.md) |
+| 6.1 | Observability, part 1: why "which request" is hard at scale, and request/correlation IDs | [session-6.1](sessions/session-6.1.md), [diagram](diagrams/session6-see-what-service-is-doing.png) |
 
 ## What comes next
 
