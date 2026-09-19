@@ -37,6 +37,7 @@ or Kubernetes cluster shows up just because a typical diagram has one.
 | 4 | Error contracts: 422 / 404 / 409 gates on `PUT`, 204 on success | [session-4](sessions/session-4.md), [app docs](app/README.md) |
 | 5 | The first automated test: an independent check that a missing user is a 404 | [session-5](sessions/session-5.md), [app docs](app/README.md) |
 | 6.1 | Observability, part 1: why "which request" is hard at scale, and request/correlation IDs | [session-6.1](sessions/session-6.1.md), [diagram](diagrams/session6-see-what-service-is-doing.png) |
+| 7 | Payload security: does the request need to contain all of it? hash vs. tokenise vs. encrypt, mask before output | [session-7](sessions/session-7.md), [diagram](diagrams/session7-payload-security-flow.png) |
 
 ## What comes next
 
