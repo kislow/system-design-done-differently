@@ -1,4 +1,4 @@
-# Session 7: does the request need to contain all of it? — payload security
+# Session 6.2: does the request need to contain all of it? — payload security
 
 ## The observation that motivated this
 
@@ -39,7 +39,7 @@ flowchart LR
 
 The whiteboard version from the session:
 
-![client and API round trip, with a raw payload containing password/token/card number on the client side, the API deciding hash vs tokenise vs encrypt per field before storage, and the reverse trip decrypting only what's needed before masking the response](../diagrams/session7-payload-security-flow.png)
+![client and API round trip, with a raw payload containing password/token/card number on the client side, the API deciding hash vs tokenise vs encrypt per field before storage, and the reverse trip decrypting only what's needed before masking the response](../diagrams/session6.2-payload-security-flow.png)
 
 Same three boxes as every session so far — client, API, DB. Nothing new architecturally. What's
 new is that the arrow between API and DB is no longer just "the payload," it's a decision per
