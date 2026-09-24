@@ -27,6 +27,19 @@ or Kubernetes cluster shows up just because a typical diagram has one.
 - `scripts/`: checks that prove a session's claim, rather than trusting it.
 - `Dockerfile`, `docker-compose.yml`: containers for the API and Postgres.
 
+## Session 7.1 demo: concurrency versus parallelism
+
+Run the standalone Python example (no dependencies required):
+
+```bash
+python3 scripts/concurrency-vs-parallelism.py
+```
+
+It compares synchronous waiting with asynchronous concurrency on one thread, then compares
+sequential CPU work with parallel work in separate processes. See the
+[session 7.1 write-up](sessions/session-7.1.md) for what the measurements prove and, importantly,
+what they do not say about the API's capacity yet.
+
 ## Sessions
 
 | # | Focus | Notes |
@@ -38,6 +51,7 @@ or Kubernetes cluster shows up just because a typical diagram has one.
 | 5 | The first automated test: an independent check that a missing user is a 404 | [session-5](sessions/session-5.md), [app docs](app/README.md) |
 | 6.1 | Observability, part 1: why "which request" is hard at scale, and request/correlation IDs | [session-6.1](sessions/session-6.1.md), [diagram](diagrams/session6-see-what-service-is-doing.png) |
 | 6.2 | Payload security: does the request need to contain all of it? hash vs. tokenise vs. encrypt, mask before output | [session-6.2](sessions/session-6.2.md), [diagram](diagrams/session6.2-payload-security-flow.png) |
+| 7.1 | Measuring before scaling: sync vs. async, concurrency vs. parallelism, waiting vs. CPU work | [session-7.1](sessions/session-7.1.md), [demo](scripts/concurrency-vs-parallelism.py), [diagram](diagrams/session7.1-measuring-before-scaling.png) |
 
 ## What comes next
 
@@ -50,7 +64,7 @@ Topics on the table, roughly in the order these constraints tend to surface:
 - API lifecycle and correctness: validation, error contracts, duplicate handling
 - automated tests and CI
 - logging and metrics, and what "observable" actually requires
-- latency and capacity estimation
+- load testing, latency, and capacity estimation
 - more than one API instance, and load balancing in front of them
 - caching, and invalidating it
 - queues, retries, and idempotency
