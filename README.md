@@ -27,7 +27,7 @@ or Kubernetes cluster shows up just because a typical diagram has one.
 - `scripts/`: checks that prove a session's claim, rather than trusting it.
 - `Dockerfile`, `docker-compose.yml`: containers for the API and Postgres.
 
-## Session 7.1 demo: concurrency versus parallelism
+## Session 7.1: from concurrency concepts to measured load
 
 Run the standalone Python example (no dependencies required):
 
@@ -40,6 +40,18 @@ sequential CPU work with parallel work in separate processes. See the
 [session 7.1 write-up](sessions/session-7.1.md) for what the measurements prove and, importantly,
 what they do not say about the API's capacity yet.
 
+The follow-on exercise applies those terms to the running API:
+
+```bash
+python tools/load_test.py \
+  --url http://localhost:8000/users/123 \
+  --requests 300 \
+  --concurrency 10
+```
+
+See the [load-test record](sessions/session-7.1-measuring-under-load.md) for the observed RPS,
+p50/p95, timeout behaviour, and the connection-pool bottleneck that led into Session 8.
+
 ## Sessions
 
 | # | Focus | Notes |
@@ -51,7 +63,8 @@ what they do not say about the API's capacity yet.
 | 5 | The first automated test: an independent check that a missing user is a 404 | [session-5](sessions/session-5.md), [app docs](app/README.md) |
 | 6.1 | Observability, part 1: why "which request" is hard at scale, and request/correlation IDs | [session-6.1](sessions/session-6.1.md), [diagram](diagrams/session6-see-what-service-is-doing.png) |
 | 6.2 | Payload security: does the request need to contain all of it? hash vs. tokenise vs. encrypt, mask before output | [session-6.2](sessions/session-6.2.md), [diagram](diagrams/session6.2-payload-security-flow.png) |
-| 7.1 | Measuring before scaling: sync vs. async, concurrency vs. parallelism, waiting vs. CPU work | [session-7.1](sessions/session-7.1.md), [demo](scripts/concurrency-vs-parallelism.py), [diagram](diagrams/session7.1-measuring-before-scaling.png) |
+| 7.1 | Measuring before scaling: concurrency vs. parallelism, then RPS, p50/p95, timeouts, and the connection-pool limit under real load | [concepts](sessions/session-7.1.md), [demo](scripts/concurrency-vs-parallelism.py), [load-test record](sessions/session-7.1-measuring-under-load.md), [tool](tools/load_test.py) |
+| 8 | Replaceability before replication: percentile caveats, durable state, liveness, and readiness | [session-8](sessions/session-8.md), [percentile recap](diagrams/session8-percentiles-recap.png), [failure scenario](diagrams/session8-instance-failure-and-p50.png) |
 
 ## What comes next
 
