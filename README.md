@@ -26,6 +26,7 @@ or Kubernetes cluster shows up just because a typical diagram has one.
 - `sessions/`: a short write-up per session, what we built, what we decided, what's next.
 - `scripts/`: checks that prove a session's claim, rather than trusting it.
 - `Dockerfile`, `docker-compose.yml`: containers for the API and Postgres.
+- `docker-compose.scale.yml`: override for running several API replicas side by side (session 8.1).
 
 ## Session 7.1: from concurrency concepts to measured load
 
@@ -65,6 +66,7 @@ p50/p95, timeout behaviour, and the connection-pool bottleneck that led into Ses
 | 6.2 | Payload security: does the request need to contain all of it? hash vs. tokenise vs. encrypt, mask before output | [session-6.2](sessions/session-6.2.md), [diagram](diagrams/session6.2-payload-security-flow.png) |
 | 7.1 | Measuring before scaling: concurrency vs. parallelism, then RPS, p50/p95, timeouts, and the connection-pool limit under real load | [concepts](sessions/session-7.1.md), [demo](scripts/concurrency-vs-parallelism.py), [load-test record](sessions/session-7.1-measuring-under-load.md), [tool](tools/load_test.py) |
 | 8 | Replaceability before replication: percentile caveats, durable state, liveness, and readiness | [session-8](sessions/session-8.md), [percentile recap](diagrams/session8-percentiles-recap.png), [failure scenario](diagrams/session8-instance-failure-and-p50.png) |
+| 8.1 | Three API replicas: host vs. container ports, `X-Instance-ID`, Docker DNS round-robin, timeouts vs. retries | [session-8.1](sessions/session-8.1.md), [diagram](diagrams/session8.1-replicas-host-ports-and-network.png), [scale override](docker-compose.scale.yml) |
 
 ## What comes next
 

@@ -1,12 +1,17 @@
 import os
+import socket
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Response, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response, status
 from psycopg.errors import UniqueViolation
 from psycopg_pool import ConnectionPool
 from pydantic import BaseModel
 
 DATABASE_URL = os.environ["DATABASE_URL"]
+
+# Which replica answered. In Docker the hostname is the short container ID, so
+# each `--scale api=N` replica reports a different value with no extra config.
+INSTANCE_ID = os.environ.get("INSTANCE_ID") or socket.gethostname()
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -33,6 +38,15 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Deployment Request Service", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def add_instance_id(request: Request, call_next):
+    # a header, not a body field: it describes the server, not the user, and
+    # it lands on error responses too, so a 404 still says who sent it.
+    response = await call_next(request)
+    response.headers["X-Instance-ID"] = INSTANCE_ID
+    return response
 
 
 def get_conn():

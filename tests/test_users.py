@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 
-from app.main import app, get_conn
+from app.main import INSTANCE_ID, app, get_conn
 
 
 class NoRowsConn:
@@ -24,3 +24,15 @@ def test_get_missing_user_returns_404():
 
     assert response.status_code == 404
     assert response.json() == {"detail": "user 999 not in DB"}
+
+
+def test_responses_carry_instance_id_header():
+    app.dependency_overrides[get_conn] = NoRowsConn
+    try:
+        # a 404 is enough: the header is added on every response, errors included.
+        response = TestClient(app).get("/users/999")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.headers["X-Instance-ID"] == INSTANCE_ID
+    assert INSTANCE_ID

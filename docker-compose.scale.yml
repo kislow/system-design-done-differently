@@ -1,0 +1,15 @@
+# Session 8.1: run several API replicas side by side.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.scale.yml up -d --build --scale api=3
+#
+# The base file publishes "8000:8000", and a host port can belong to only one
+# container, so the second replica fails with "port is already allocated".
+# Publishing the container port alone lets Docker give each replica its own
+# random host port instead. Nothing listens on localhost:8000 in this mode;
+# see sessions/session-8.1.md for how to reach the replicas.
+services:
+  api:
+    # !override replaces the base list; without it Compose merges the two and
+    # 8000:8000 is still published.
+    ports: !override
+      - "8000"

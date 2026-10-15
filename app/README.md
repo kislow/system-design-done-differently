@@ -116,6 +116,10 @@ minutes.
 | DELETE | `/users`      | admin token  | none                           | 200       | 401 no/invalid token, 403 wrong role        |
 
 
+Every response, errors included, carries an `X-Instance-ID` header naming the API instance that
+answered. It is the container hostname (the short container ID) unless `INSTANCE_ID` is set. See
+[`../sessions/session-8.1.md`](../sessions/session-8.1.md) for why it exists.
+
 ## Auth
 
 `DELETE` requires `Authorization: Bearer <token>`. The token → role mapping is a hardcoded
