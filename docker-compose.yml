@@ -1,8 +1,8 @@
 services:
   api:
     build: .
-    ports:
-      - "8000:8000"
+    deploy:
+      replicas: 2
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
     depends_on:
@@ -10,6 +10,23 @@ services:
         # plain depends_on waits for the container to start, not for Postgres to
         # accept connections. On a fresh volume initdb takes seconds and the API
         # would connect too early.
+        condition: service_healthy
+    restart: on-failure
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  load-balancer:
+    image: haproxy:3.0-alpine
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    depends_on:
+      api:
         condition: service_healthy
     restart: on-failure
 

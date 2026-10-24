@@ -19,14 +19,26 @@ and why.
 docker compose up --build
 ```
 
-The API is on `http://localhost:8000`, Postgres on `localhost:5432`. The API waits for Postgres
-to accept connections before it starts serving, and creates the `users` table on startup.
+The load balancer is on `http://localhost:8000`, Postgres on `localhost:5432`. Compose starts two
+API instances behind the load balancer. The API instances wait for Postgres to accept connections
+before serving, and create the `users` table on startup.
+`/health/live` reports whether the API process can answer requests; `/health/ready` also checks
+PostgreSQL and returns `503` when the API should not receive traffic. Compose uses readiness for
+the API container health check and HAProxy's backend checks.
+
+To run three API instances instead:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.scale.yml up -d --build
+```
+
+The same `localhost:8000` entry point continues to serve requests.
 
 Credentials live in `.env`, committed because they are fake and only reachable on your machine.
 Both the db container and the API's `DATABASE_URL` read from it, so there is one copy of each
 value.
 
-Stop and remove both containers:
+Stop and remove the Compose containers:
 
 ```bash
 docker compose down
@@ -107,6 +119,8 @@ minutes.
 
 | Method | Path          | Auth         | Body                          | Success   | Errors                                    |
 |--------|---------------|--------------|--------------------------------|-----------|--------------------------------------------|
+| GET    | `/health/live` | none        | none                           | 200       | none                                       |
+| GET    | `/health/ready` | none       | none                           | 200       | 503 if PostgreSQL is unavailable           |
 | POST   | `/users`      | none         | full user                     | 201       | 400 if `id` already exists                 |
 | GET    | `/users/{id}` | none         | none                           | 200       | 404 if not found                           |
 | GET    | `/users`      | none         | none                           | 200       | none, `[]` when empty                      |

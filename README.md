@@ -25,8 +25,8 @@ or Kubernetes cluster shows up just because a typical diagram has one.
 - `diagrams/`: architecture diagrams, one per session.
 - `sessions/`: a short write-up per session, what we built, what we decided, what's next.
 - `scripts/`: checks that prove a session's claim, rather than trusting it.
-- `Dockerfile`, `docker-compose.yml`: containers for the API and Postgres.
-- `docker-compose.scale.yml`: override for running several API replicas side by side (session 8.1).
+- `Dockerfile`, `docker-compose.yml`, `haproxy.cfg`: API, Postgres, and load balancer configuration.
+- `docker-compose.scale.yml`: override for running three API replicas behind the load balancer.
 
 ## Session 7.1: from concurrency concepts to measured load
 
@@ -67,6 +67,7 @@ p50/p95, timeout behaviour, and the connection-pool bottleneck that led into Ses
 | 7.1 | Measuring before scaling: concurrency vs. parallelism, then RPS, p50/p95, timeouts, and the connection-pool limit under real load | [concepts](sessions/session-7.1.md), [demo](scripts/concurrency-vs-parallelism.py), [load-test record](sessions/session-7.1-measuring-under-load.md), [tool](tools/load_test.py) |
 | 8 | Replaceability before replication: percentile caveats, durable state, liveness, and readiness | [session-8](sessions/session-8.md), [percentile recap](diagrams/session8-percentiles-recap.png), [failure scenario](diagrams/session8-instance-failure-and-p50.png) |
 | 8.1 | Three API replicas: host vs. container ports, `X-Instance-ID`, Docker DNS round-robin, timeouts vs. retries | [session-8.1](sessions/session-8.1.md), [diagram](diagrams/session8.1-replicas-host-ports-and-network.png), [scale override](docker-compose.scale.yml) |
+| 9 | Two API instances behind HAProxy: readiness-based routing, visible traffic distribution, and API instance failure | [session-9](sessions/session-9.md), [HAProxy config](haproxy.cfg) |
 
 ## What comes next
 
@@ -80,7 +81,7 @@ Topics on the table, roughly in the order these constraints tend to surface:
 - automated tests and CI
 - logging and metrics, and what "observable" actually requires
 - load testing, latency, and capacity estimation
-- more than one API instance, and load balancing in front of them
+- database connection limits and safe schema evolution across API versions
 - caching, and invalidating it
 - queues, retries, and idempotency
 - rate limiting

@@ -55,6 +55,28 @@ def get_conn():
         yield conn
 
 
+@app.get("/health/live")
+def health_live() -> dict[str, str]:
+    # Liveness only says this process can answer HTTP; a database outage should
+    # not cause an orchestrator to restart an otherwise healthy process.
+    return {"status": "ok"}
+
+
+@app.get("/health/ready")
+def health_ready() -> dict[str, str]:
+    # Every current business endpoint needs Postgres, so only accept traffic
+    # while a pooled connection can successfully run a trivial query.
+    try:
+        with pool.connection(timeout=1) as conn:
+            conn.execute("SELECT 1")
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="not ready",
+        ) from None
+    return {"status": "ok"}
+
+
 # fake token store, no real auth service yet. Maps bearer token -> role.
 _TOKEN_ROLES: dict[str, str] = {
     "admin-token": "admin",
