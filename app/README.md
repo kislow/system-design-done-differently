@@ -20,8 +20,8 @@ docker compose up --build
 ```
 
 The load balancer is on `http://localhost:8000`, Postgres on `localhost:5432`. Compose starts two
-API instances behind the load balancer. The API instances wait for Postgres to accept connections
-before serving, and create the `users` table on startup.
+API instances behind the load balancer. A one-shot `migrate` container first applies pending schema
+migrations (`alembic upgrade head`); the API instances start only after it exits successfully.
 `/health/live` reports whether the API process can answer requests; `/health/ready` also checks
 PostgreSQL and returns `503` when the API should not receive traffic. Compose uses readiness for
 the API container health check and HAProxy's backend checks.
@@ -54,6 +54,7 @@ pip install -r requirements.txt
 # required, the app fails fast without it. Point it at the Compose Postgres:
 set -a; . ./.env; set +a
 export DATABASE_URL="postgresql://$POSTGRES_USER:$POSTGRES_PASSWORD@localhost:5432/$POSTGRES_DB"
+alembic upgrade head    # the API no longer creates its own tables
 uvicorn app.main:app --reload
 ```
 
@@ -65,11 +66,27 @@ PostgreSQL is the source of truth. One user is one row in the `users` table:
 |---------|--------|-----------------|
 | `id`    | BIGINT | primary key     |
 | `name`  | TEXT   | not null        |
-| `email` | TEXT   | not null        |
+| `email` | TEXT   | not null, unique |
+| `created_at` | TIMESTAMPTZ | not null, set by Postgres on insert; returned, never accepted |
 
 ```json
-{"id": 123, "name": "bob", "email": "bob@coderco.io"}
+{"id": 123, "name": "bob", "email": "bob@coderco.io", "created_at": "2026-11-05T19:08:30.043942Z"}
 ```
+
+## Schema migrations
+
+The schema lives in [`../migrations/versions/`](../migrations/versions/), managed by Alembic. See
+[`../sessions/session-10.md`](../sessions/session-10.md) for why and what went wrong the first time.
+
+```bash
+alembic revision -m "describe the change"   # new file; write upgrade() and downgrade()
+alembic upgrade head --sql                  # review the SQL
+alembic upgrade head                        # apply (or: docker compose up -d --build)
+alembic current                             # version this DB is at
+alembic downgrade -1                        # undo the last one
+```
+
+Never edit a migration that has already been applied somewhere; add a new one.
 
 Users survive API restarts. They are removed only by `DELETE /users/{id}`, `DELETE /users` or by deleting the
 `db-data` volume.
@@ -121,11 +138,11 @@ minutes.
 |--------|---------------|--------------|--------------------------------|-----------|--------------------------------------------|
 | GET    | `/health/live` | none        | none                           | 200       | none                                       |
 | GET    | `/health/ready` | none       | none                           | 200       | 503 if PostgreSQL is unavailable           |
-| POST   | `/users`      | none         | full user                     | 201       | 400 if `id` already exists                 |
+| POST   | `/users`      | none         | full user                     | 201       | 400 if `id` already exists, 409 if `email` belongs to another user |
 | GET    | `/users/{id}` | none         | none                           | 200       | 404 if not found                           |
 | GET    | `/users`      | none         | none                           | 200       | none, `[]` when empty                      |
 | PUT    | `/users/{id}` | none         | full user, `id` must match path | 204       | 404 if not found, 409 on id change or email owned by another user |
-| PATCH  | `/users/{id}` | none         | partial `{name?, email?}`     | 200       | 404 if not found                           |
+| PATCH  | `/users/{id}` | none         | partial `{name?, email?}`     | 200       | 404 if not found, 409 if `email` belongs to another user |
 | DELETE | `/users/{id}` | admin token  | none                           | 200       | 401 no/invalid token, 403 wrong role, 404 if not found |
 | DELETE | `/users`      | admin token  | none                           | 200       | 401 no/invalid token, 403 wrong role        |
 

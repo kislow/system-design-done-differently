@@ -27,6 +27,7 @@ or Kubernetes cluster shows up just because a typical diagram has one.
 - `scripts/`: checks that prove a session's claim, rather than trusting it.
 - `Dockerfile`, `docker-compose.yml`, `haproxy.cfg`: API, Postgres, and load balancer configuration.
 - `docker-compose.scale.yml`: override for running three API replicas behind the load balancer.
+- `alembic.ini`, `migrations/`: versioned schema changes, applied once by the `migrate` service before the API starts.
 
 ## Session 7.1: from concurrency concepts to measured load
 
@@ -68,6 +69,7 @@ p50/p95, timeout behaviour, and the connection-pool bottleneck that led into Ses
 | 8 | Replaceability before replication: percentile caveats, durable state, liveness, and readiness | [session-8](sessions/session-8.md), [percentile recap](diagrams/session8-percentiles-recap.png), [failure scenario](diagrams/session8-instance-failure-and-p50.png) |
 | 8.1 | Three API replicas: host vs. container ports, `X-Instance-ID`, Docker DNS round-robin, timeouts vs. retries | [session-8.1](sessions/session-8.1.md), [diagram](diagrams/session8.1-replicas-host-ports-and-network.png), [scale override](docker-compose.scale.yml) |
 | 9 | Two API instances behind HAProxy: readiness-based routing, visible traffic distribution, and API instance failure | [session-9](sessions/session-9.md), [HAProxy config](haproxy.cfg) |
+| 10 | Schema migrations: code and schema version separately, Alembic, run-once `migrate` service, old and new API versions on one schema | [session-10](sessions/session-10.md), [migrations](migrations/versions/) |
 
 ## What comes next
 

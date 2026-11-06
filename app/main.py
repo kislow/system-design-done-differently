@@ -1,6 +1,7 @@
 import os
 import socket
 from contextlib import asynccontextmanager
+from datetime import datetime
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response, status
 from psycopg.errors import UniqueViolation
@@ -13,13 +14,9 @@ DATABASE_URL = os.environ["DATABASE_URL"]
 # each `--scale api=N` replica reports a different value with no extra config.
 INSTANCE_ID = os.environ.get("INSTANCE_ID") or socket.gethostname()
 
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS users (
-    id BIGINT PRIMARY KEY,
-    name TEXT NOT NULL,
-    email TEXT NOT NULL
-);
-"""
+# The schema lives in migrations/, applied by `alembic upgrade head` before the
+# API starts. Named here because which unique rule broke decides the response.
+EMAIL_CONSTRAINT = "users_email_key"
 
 # One pool per process. Connecting per request would pay a TCP and auth
 # handshake on every call; the pool also lets startup wait for Postgres.
@@ -31,8 +28,6 @@ async def lifespan(app: FastAPI):
     # Postgres may still be running initdb when the API starts. The pool keeps
     # retrying in the background, so wait rather than crash on a cold volume.
     pool.open(wait=True, timeout=30)
-    with pool.connection() as conn:
-        conn.execute(SCHEMA)
     yield
     pool.close()
 
@@ -103,55 +98,89 @@ class User(BaseModel):
     email: str
 
 
+class StoredUser(User):
+    # what the API returns. created_at is set by Postgres on INSERT, so it is not
+    # on User: a client cannot send it, and a sent value is ignored like any
+    # other unknown field.
+    created_at: datetime
+
+
 class UserUpdate(BaseModel):
     name: str | None = None
     email: str | None = None
 
 
-SELECT_USER = "SELECT id, name, email FROM users WHERE id = %s"
+# one list of returned columns, so a new column cannot reach some endpoints
+# and silently miss others.
+USER_COLUMNS = "id, name, email, created_at"
+
+SELECT_USER = f"SELECT {USER_COLUMNS} FROM users WHERE id = %s"
 EMAIL_OWNER = "SELECT id FROM users WHERE email = %s AND id <> %s"
-UPDATE_USER = "UPDATE users SET name = %s, email = %s WHERE id = %s RETURNING id, name, email"
+UPDATE_USER = f"UPDATE users SET name = %s, email = %s WHERE id = %s RETURNING {USER_COLUMNS}"
 
 
-def _user_or_404(row: tuple | None, user_id: int) -> User:
+def _to_user(row: tuple) -> StoredUser:
+    return StoredUser(id=row[0], name=row[1], email=row[2], created_at=row[3])
+
+
+def _user_or_404(row: tuple | None, user_id: int) -> StoredUser:
     # every statement below returns the row it touched, so "no row" is the only
     # 404 test we need, and it stays correct if the row goes away mid-request.
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"user {user_id} not in DB")
-    return User(id=row[0], name=row[1], email=row[2])
+    return _to_user(row)
 
 
-def _get_user_or_404(conn, user_id: int) -> User:
+def _get_user_or_404(conn, user_id: int) -> StoredUser:
     return _user_or_404(conn.execute(SELECT_USER, (user_id,)).fetchone(), user_id)
 
 
-def _get_users(conn) -> list[User]:
+def _update_user(conn, user_id: int, user: User) -> StoredUser:
+    try:
+        row = conn.execute(UPDATE_USER, (user.name, user.email, user_id)).fetchone()
+    except UniqueViolation:
+        # id never changes in an UPDATE, so email is the only unique rule it can
+        # break. This is the race _reject_conflict cannot see: two requests both
+        # read the address as free, and the constraint stops the second write.
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, f"email {user.email} already belongs to another user"
+        ) from None
+    return _user_or_404(row, user_id)
+
+
+def _get_users(conn) -> list[StoredUser]:
     # unbounded on purpose for now: the response grows with the table, and
     # pagination is its own session. ORDER BY so repeated calls agree, which an
     # unordered SELECT does not guarantee.
-    rows = conn.execute("SELECT id, name, email FROM users ORDER BY id").fetchall()
-    return [User(id=row[0], name=row[1], email=row[2]) for row in rows]
+    rows = conn.execute(f"SELECT {USER_COLUMNS} FROM users ORDER BY id").fetchall()
+    return [_to_user(row) for row in rows]
 
 
 @app.post("/users", status_code=status.HTTP_201_CREATED)
-def create_user(user: User, conn=Depends(get_conn)) -> User:
+def create_user(user: User, conn=Depends(get_conn)) -> StoredUser:
     try:
         row = conn.execute(
-            "INSERT INTO users (id, name, email) VALUES (%s, %s, %s) RETURNING id, name, email",
+            f"INSERT INTO users (id, name, email) VALUES (%s, %s, %s) RETURNING {USER_COLUMNS}",
             (user.id, user.name, user.email),
         ).fetchone()
-    except UniqueViolation:
+    except UniqueViolation as exc:
+        # the constraint name says which rule broke; the message text is not a
+        # contract and changes with Postgres version and locale.
+        if exc.diag.constraint_name == EMAIL_CONSTRAINT:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT, f"email {user.email} already belongs to another user"
+            ) from None
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"user {user.id} already exists") from None
     return _user_or_404(row, user.id)
 
 
 @app.get("/users/{user_id}")
-def get_user(user_id: int, conn=Depends(get_conn)) -> User:
+def get_user(user_id: int, conn=Depends(get_conn)) -> StoredUser:
     return _get_user_or_404(conn, user_id)
 
 
 @app.get("/users")
-def get_users(conn=Depends(get_conn)) -> list[User]:
+def get_users(conn=Depends(get_conn)) -> list[StoredUser]:
     return _get_users(conn)
 
 
@@ -162,8 +191,8 @@ def _reject_conflict(conn, current: User, incoming: User) -> None:
     conflicts = []
     if incoming.id != current.id:
         conflicts.append(f"id is immutable, {current.id} cannot become {incoming.id}")
-    # no UNIQUE on email yet, so two concurrent PUTs can both read "free" and
-    # both write. This closes the sequential case only, deliberately.
+    # users_email_key is what guarantees uniqueness, concurrent PUTs included.
+    # This check stays because it can name the owner, which the constraint can't.
     owner = conn.execute(EMAIL_OWNER, (incoming.email, current.id)).fetchone()
     if owner is not None:
         conflicts.append(f"email {incoming.email} already belongs to user {owner[0]}")
@@ -175,24 +204,22 @@ def _reject_conflict(conn, current: User, incoming: User) -> None:
 def replace_user(user_id: int, user: User, conn=Depends(get_conn)) -> Response:
     current = _get_user_or_404(conn, user_id)
     _reject_conflict(conn, current, user)
-    row = conn.execute(UPDATE_USER, (user.name, user.email, user_id)).fetchone()
-    # the row is dropped, not returned, but it still proves the UPDATE hit a row
-    # rather than silently matching nothing.
-    _user_or_404(row, user_id)
+    # the user is dropped, not returned, but it still proves the UPDATE hit a
+    # row rather than silently matching nothing.
+    _update_user(conn, user_id, user)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @app.patch("/users/{user_id}")
-def update_user(user_id: int, patch: UserUpdate, conn=Depends(get_conn)) -> User:
+def update_user(user_id: int, patch: UserUpdate, conn=Depends(get_conn)) -> StoredUser:
     existing = _get_user_or_404(conn, user_id)
     updated = existing.model_copy(update=patch.model_dump(exclude_unset=True))
-    row = conn.execute(UPDATE_USER, (updated.name, updated.email, user_id)).fetchone()
-    return _user_or_404(row, user_id)
+    return _update_user(conn, user_id, updated)
 
 
 @app.delete("/users/{user_id}", dependencies=[Depends(require_role("admin"))])
 def delete_user(user_id: int, conn=Depends(get_conn)) -> dict[str, str]:
-    row = conn.execute("DELETE FROM users WHERE id = %s RETURNING id, name, email", (user_id,)).fetchone()
+    row = conn.execute(f"DELETE FROM users WHERE id = %s RETURNING {USER_COLUMNS}", (user_id,)).fetchone()
     _user_or_404(row, user_id)
     return {"detail": f"user {user_id} deleted"}
 
