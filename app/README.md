@@ -26,6 +26,9 @@ migrations (`alembic upgrade head`); the API instances start only after it exits
 PostgreSQL and returns `503` when the API should not receive traffic. Compose uses readiness for
 the API container health check and HAProxy's backend checks.
 
+Compose also starts Redis as a read cache for `GET /users/{id}`. The API does not wait for it and
+readiness does not check it: with Redis down the API answers from PostgreSQL. See [Cache](#cache).
+
 To run three API instances instead:
 
 ```bash
@@ -72,6 +75,39 @@ PostgreSQL is the source of truth. One user is one row in the `users` table:
 ```json
 {"id": 123, "name": "bob", "email": "bob@coderco.io", "created_at": "2026-11-05T19:08:30.043942Z"}
 ```
+
+## Cache
+
+`GET /users/{id}` is cached in Redis under the key `user:{id}`. PostgreSQL stays the source of
+truth: nothing is written only to Redis, and losing Redis loses no data. See
+[`../sessions/session-11.md`](../sessions/session-11.md) for the reasoning and
+[`../sessions/session-11-lab-steps.md`](../sessions/session-11-lab-steps.md) for the commands.
+
+Every `GET /users/{id}` response carries an `X-Cache` header:
+
+| `X-Cache` | Meaning |
+|---|---|
+| `HIT` | answered from Redis |
+| `MISS` | answered from PostgreSQL, then cached |
+| `BYPASS` | Redis unreachable, answered from PostgreSQL |
+
+Every write (`POST`, `PUT`, `PATCH`, `DELETE`) deletes the affected key after its commit, so the
+next read is a `MISS` that reloads the row.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `REDIS_URL` | `redis://localhost:6379/0` | Compose sets `redis://redis:6379/0` |
+| `CACHE_TTL_SECONDS` | `15` | how long a cached user may live, a whole number of seconds. Compose passes `300` unless the variable is set |
+
+```bash
+CACHE_TTL_SECONDS=15 docker compose up -d api      # run with a different TTL
+docker compose exec redis redis-cli get user:123   # the cached copy
+docker compose exec redis redis-cli ttl user:123   # seconds it has left
+docker compose exec redis redis-cli del user:123   # invalidate by hand
+```
+
+Compose does not publish the Redis port, so an API run locally without Docker cannot reach it and
+answers every read with `BYPASS`.
 
 ## Schema migrations
 
@@ -125,8 +161,9 @@ pip install -r requirements-dev.txt
 pytest -q
 ```
 
-No Postgres needed. The tests override the `get_conn` dependency and drive the API through
-`TestClient`, which skips the lifespan, so the connection pool is never opened. See
+No Postgres or Redis needed. The tests override the `get_conn` dependency and drive the API through
+`TestClient`, which skips the lifespan, so the connection pool is never opened. Every test gets an
+in-memory stand-in for Redis ([`../tests/fakes.py`](../tests/fakes.py)). See
 [`../sessions/session-5.md`](../sessions/session-5.md) for what that does and does not prove.
 
 It is `-m pytest`, not `-m test`: `test` is CPython's own stdlib suite and will happily run for
@@ -139,7 +176,7 @@ minutes.
 | GET    | `/health/live` | none        | none                           | 200       | none                                       |
 | GET    | `/health/ready` | none       | none                           | 200       | 503 if PostgreSQL is unavailable           |
 | POST   | `/users`      | none         | full user                     | 201       | 400 if `id` already exists, 409 if `email` belongs to another user |
-| GET    | `/users/{id}` | none         | none                           | 200       | 404 if not found                           |
+| GET    | `/users/{id}` | none         | none                           | 200, with `X-Cache` | 404 if not found                    |
 | GET    | `/users`      | none         | none                           | 200       | none, `[]` when empty                      |
 | PUT    | `/users/{id}` | none         | full user, `id` must match path | 204       | 404 if not found, 409 on id change or email owned by another user |
 | PATCH  | `/users/{id}` | none         | partial `{name?, email?}`     | 200       | 404 if not found, 409 if `email` belongs to another user |

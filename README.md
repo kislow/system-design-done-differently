@@ -25,7 +25,7 @@ or Kubernetes cluster shows up just because a typical diagram has one.
 - `diagrams/`: architecture diagrams, one per session.
 - `sessions/`: a short write-up per session, what we built, what we decided, what's next.
 - `scripts/`: checks that prove a session's claim, rather than trusting it.
-- `Dockerfile`, `docker-compose.yml`, `haproxy.cfg`: API, Postgres, and load balancer configuration.
+- `Dockerfile`, `docker-compose.yml`, `haproxy.cfg`: API, Postgres, Redis cache, and load balancer configuration.
 - `docker-compose.scale.yml`: override for running three API replicas behind the load balancer.
 - `alembic.ini`, `migrations/`: versioned schema changes, applied once by the `migrate` service before the API starts.
 
@@ -70,6 +70,7 @@ p50/p95, timeout behaviour, and the connection-pool bottleneck that led into Ses
 | 8.1 | Three API replicas: host vs. container ports, `X-Instance-ID`, Docker DNS round-robin, timeouts vs. retries | [session-8.1](sessions/session-8.1.md), [diagram](diagrams/session8.1-replicas-host-ports-and-network.png), [scale override](docker-compose.scale.yml) |
 | 9 | Two API instances behind HAProxy: readiness-based routing, visible traffic distribution, and API instance failure | [session-9](sessions/session-9.md), [HAProxy config](haproxy.cfg) |
 | 10 | Schema migrations: code and schema version separately, Alembic, run-once `migrate` service, old and new API versions on one schema | [session-10](sessions/session-10.md), [migrations](migrations/versions/) |
+| 11 | A Redis read cache for `GET /users/{id}`: cache-aside, hit and miss, TTL, invalidation after commit, and falling back to PostgreSQL when Redis is down | [session-11](sessions/session-11.md), [diagram](diagrams/session11-cache-aside-read-path.png), [lab steps](sessions/session-11-lab-steps.md) |
 
 ## What comes next
 
