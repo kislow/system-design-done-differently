@@ -2,3 +2,4 @@ fastapi
 uvicorn
 psycopg[binary,pool]
 alembic
+redis
