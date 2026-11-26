@@ -5,6 +5,11 @@ services:
       replicas: 2
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379/0
+      # how stale GET /users/{id} may be. Raise it to watch staleness last longer.
+      CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-300}
+    # redis is deliberately not in depends_on: the API must start and answer
+    # from Postgres with the cache down, so it cannot wait for it either.
     depends_on:
       db:
         # plain depends_on waits for the container to start, not for Postgres to
@@ -56,6 +61,19 @@ services:
       - db-data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  redis:
+    image: redis:7.4-alpine
+    # a cache, not a database: no snapshots, no append-only file, no volume.
+    # A restart starts empty and every read is a MISS until it warms up again.
+    # maxmemory + allkeys-lru: when full, drop the least recently used copy
+    # rather than refuse writes. Postgres still has every user.
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "64mb", "--maxmemory-policy", "allkeys-lru"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
       interval: 2s
       timeout: 3s
       retries: 15

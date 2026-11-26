@@ -1,10 +1,11 @@
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 from psycopg.errors import UniqueViolation
 
-from app.main import EMAIL_CONSTRAINT, INSTANCE_ID, app, get_conn
+from app.main import EMAIL_CONSTRAINT, INSTANCE_ID, app, get_conn, get_conn_factory
 
 
 class NoRowsConn:
@@ -17,8 +18,14 @@ class NoRowsConn:
         return None
 
 
+def connects_to(conn_class):
+    # GET /users/{id} borrows its connection only on a cache miss, through a
+    # factory, so overriding it means handing over a factory, not a connection.
+    return lambda: lambda: nullcontext(conn_class())
+
+
 def test_get_missing_user_returns_404():
-    app.dependency_overrides[get_conn] = NoRowsConn
+    app.dependency_overrides[get_conn_factory] = connects_to(NoRowsConn)
     try:
         # TestClient outside a `with` block skips lifespan, so no Postgres is
         # needed: the 404 is decided by the row the SELECT returns, not by the DB.
@@ -31,7 +38,7 @@ def test_get_missing_user_returns_404():
 
 
 def test_responses_carry_instance_id_header():
-    app.dependency_overrides[get_conn] = NoRowsConn
+    app.dependency_overrides[get_conn_factory] = connects_to(NoRowsConn)
     try:
         # a 404 is enough: the header is added on every response, errors included.
         response = TestClient(app).get("/users/999")
@@ -107,7 +114,7 @@ class OneUserConn:
 
 
 def test_get_user_returns_created_at():
-    app.dependency_overrides[get_conn] = OneUserConn
+    app.dependency_overrides[get_conn_factory] = connects_to(OneUserConn)
     try:
         response = TestClient(app).get("/users/1")
     finally:

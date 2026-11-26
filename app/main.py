@@ -1,12 +1,16 @@
+import logging
 import os
 import socket
 from contextlib import asynccontextmanager
 from datetime import datetime
 
+import redis
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response, status
 from psycopg.errors import UniqueViolation
 from psycopg_pool import ConnectionPool
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
+from redis.backoff import NoBackoff
+from redis.retry import Retry
 
 DATABASE_URL = os.environ["DATABASE_URL"]
 
@@ -21,6 +25,26 @@ EMAIL_CONSTRAINT = "users_email_key"
 # One pool per process. Connecting per request would pay a TCP and auth
 # handshake on every call; the pool also lets startup wait for Postgres.
 pool = ConnectionPool(DATABASE_URL, open=False)
+
+# Redis holds a temporary copy of selected reads. Postgres stays the source of
+# truth: nothing is written only to Redis, and losing Redis loses no data.
+REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+
+# How stale a cached user may be, at most. A lab choice: in a real design the
+# product requirement decides it, and a bank balance would not get 15 seconds.
+CACHE_TTL_SECONDS = int(os.environ.get("CACHE_TTL_SECONDS", "15"))
+
+# Short timeouts and no retries: a cache is only worth asking if asking costs
+# less than the database read it saves. When Redis is down we want to know in
+# milliseconds and go to Postgres, not wait out redis-py's retry backoff.
+cache = redis.Redis.from_url(
+    REDIS_URL,
+    socket_connect_timeout=0.2,
+    socket_timeout=0.2,
+    retry=Retry(NoBackoff(), 0),
+)
+
+logger = logging.getLogger("app.cache")
 
 
 @asynccontextmanager
@@ -50,6 +74,17 @@ def get_conn():
         yield conn
 
 
+def get_conn_factory():
+    # GET /users/{id} needs Postgres only on a cache miss, so it borrows a
+    # connection then and not before. A HIT that still held one of the pool's
+    # connections would not relieve the limit we hit under load in session 7.1.
+    return pool.connection
+
+
+def get_cache() -> redis.Redis:
+    return cache
+
+
 @app.get("/health/live")
 def health_live() -> dict[str, str]:
     # Liveness only says this process can answer HTTP; a database outage should
@@ -60,7 +95,9 @@ def health_live() -> dict[str, str]:
 @app.get("/health/ready")
 def health_ready() -> dict[str, str]:
     # Every current business endpoint needs Postgres, so only accept traffic
-    # while a pooled connection can successfully run a trivial query.
+    # while a pooled connection can successfully run a trivial query. Redis is
+    # not checked: a cache outage makes reads slower, not wrong, so it is no
+    # reason to take an instance out of rotation.
     try:
         with pool.connection(timeout=1) as conn:
             conn.execute("SELECT 1")
@@ -148,6 +185,52 @@ def _update_user(conn, user_id: int, user: User) -> StoredUser:
     return _user_or_404(row, user_id)
 
 
+def _cache_key(user_id: int) -> str:
+    return f"user:{user_id}"
+
+
+def _cache_get(cache: redis.Redis, user_id: int) -> tuple[StoredUser | None, str]:
+    # returns the cached user, if any, and what happened, for the X-Cache header.
+    # A failing cache is a slower request, never a failed one.
+    key = _cache_key(user_id)
+    try:
+        cached = cache.get(key)
+    except redis.RedisError as exc:
+        logger.warning("cache_read_failed key=%s error=%r fallback=postgres", key, exc)
+        return None, "BYPASS"
+    if cached is None:
+        return None, "MISS"
+    try:
+        return StoredUser.model_validate_json(cached), "HIT"
+    except ValidationError:
+        # written by an older shape of StoredUser, or not by us at all. Treat it
+        # as a miss; the fresh copy written below replaces it.
+        logger.warning("cache_entry_invalid key=%s fallback=postgres", key)
+        return None, "MISS"
+
+
+def _cache_set(cache: redis.Redis, user: StoredUser) -> None:
+    key = _cache_key(user.id)
+    try:
+        cache.setex(key, CACHE_TTL_SECONDS, user.model_dump_json())
+    except redis.RedisError as exc:
+        logger.warning("cache_write_failed key=%s error=%r", key, exc)
+
+
+def _cache_invalidate(cache: redis.Redis, *user_ids: int) -> None:
+    # called only after Postgres has committed: invalidating first would let a
+    # concurrent GET re-cache the old row before the write lands. If this fails
+    # the write still succeeded, so we log it and let the TTL bound how long the
+    # stale copy can be served.
+    keys = [_cache_key(user_id) for user_id in user_ids]
+    try:
+        cache.delete(*keys)
+    except redis.RedisError as exc:
+        logger.warning(
+            "cache_invalidate_failed keys=%s error=%r stale_for_up_to=%ss", keys, exc, CACHE_TTL_SECONDS
+        )
+
+
 def _get_users(conn) -> list[StoredUser]:
     # unbounded on purpose for now: the response grows with the table, and
     # pagination is its own session. ORDER BY so repeated calls agree, which an
@@ -157,7 +240,7 @@ def _get_users(conn) -> list[StoredUser]:
 
 
 @app.post("/users", status_code=status.HTTP_201_CREATED)
-def create_user(user: User, conn=Depends(get_conn)) -> StoredUser:
+def create_user(user: User, conn=Depends(get_conn), cache=Depends(get_cache)) -> StoredUser:
     try:
         row = conn.execute(
             f"INSERT INTO users (id, name, email) VALUES (%s, %s, %s) RETURNING {USER_COLUMNS}",
@@ -171,12 +254,42 @@ def create_user(user: User, conn=Depends(get_conn)) -> StoredUser:
                 status.HTTP_409_CONFLICT, f"email {user.email} already belongs to another user"
             ) from None
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"user {user.id} already exists") from None
-    return _user_or_404(row, user.id)
+    created = _user_or_404(row, user.id)
+    conn.commit()
+    # nothing should be cached for an id that did not exist, but a DELETE whose
+    # invalidation failed can leave the old user there. Clear it so the new
+    # user is not hidden behind it for up to the TTL.
+    _cache_invalidate(cache, user.id)
+    return created
 
 
 @app.get("/users/{user_id}")
-def get_user(user_id: int, conn=Depends(get_conn)) -> StoredUser:
-    return _get_user_or_404(conn, user_id)
+def get_user(
+    user_id: int,
+    response: Response,
+    connect=Depends(get_conn_factory),
+    cache=Depends(get_cache),
+) -> StoredUser:
+    # cache-aside: ask Redis first, fall back to Postgres, then keep a copy.
+    user, outcome = _cache_get(cache, user_id)
+    # a header so the lab can see which path answered.
+    response.headers["X-Cache"] = outcome
+    if user is not None:
+        return user
+    with connect() as conn:
+        # a 404 raises here and is not cached, so a user created a moment later
+        # is visible on the next read rather than after the TTL.
+        try:
+            user = _get_user_or_404(conn, user_id)
+        except HTTPException as exc:
+            # a raised HTTPException builds its own response and drops the
+            # header set above, so carry it over: a 404 also says whether the
+            # cache was consulted.
+            exc.headers = {"X-Cache": outcome}
+            raise
+    if outcome == "MISS":
+        _cache_set(cache, user)
+    return user
 
 
 @app.get("/users")
@@ -201,32 +314,47 @@ def _reject_conflict(conn, current: User, incoming: User) -> None:
 
 
 @app.put("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
-def replace_user(user_id: int, user: User, conn=Depends(get_conn)) -> Response:
+def replace_user(user_id: int, user: User, conn=Depends(get_conn), cache=Depends(get_cache)) -> Response:
     current = _get_user_or_404(conn, user_id)
     _reject_conflict(conn, current, user)
     # the user is dropped, not returned, but it still proves the UPDATE hit a
     # row rather than silently matching nothing.
     _update_user(conn, user_id, user)
+    conn.commit()
+    _cache_invalidate(cache, user_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @app.patch("/users/{user_id}")
-def update_user(user_id: int, patch: UserUpdate, conn=Depends(get_conn)) -> StoredUser:
+def update_user(
+    user_id: int, patch: UserUpdate, conn=Depends(get_conn), cache=Depends(get_cache)
+) -> StoredUser:
     existing = _get_user_or_404(conn, user_id)
     updated = existing.model_copy(update=patch.model_dump(exclude_unset=True))
-    return _update_user(conn, user_id, updated)
+    stored = _update_user(conn, user_id, updated)
+    # commit here, not when get_conn exits: the invalidation must follow the
+    # commit, and a dependency's teardown is not guaranteed to run before it.
+    conn.commit()
+    _cache_invalidate(cache, user_id)
+    return stored
 
 
 @app.delete("/users/{user_id}", dependencies=[Depends(require_role("admin"))])
-def delete_user(user_id: int, conn=Depends(get_conn)) -> dict[str, str]:
+def delete_user(user_id: int, conn=Depends(get_conn), cache=Depends(get_cache)) -> dict[str, str]:
     row = conn.execute(f"DELETE FROM users WHERE id = %s RETURNING {USER_COLUMNS}", (user_id,)).fetchone()
     _user_or_404(row, user_id)
+    conn.commit()
+    _cache_invalidate(cache, user_id)
     return {"detail": f"user {user_id} deleted"}
 
 
 @app.delete("/users", dependencies=[Depends(require_role("admin"))])
-def delete_users(conn=Depends(get_conn)) -> dict[str, str]:
-    # rowcount, not len(fetchall()): counting rows should not mean carrying them
-    # all back from Postgres first.
-    count = conn.execute("DELETE FROM users").rowcount
+def delete_users(conn=Depends(get_conn), cache=Depends(get_cache)) -> dict[str, str]:
+    # RETURNING id, not the whole row: the ids name the cache keys to clear,
+    # and an id is all we need to carry back from Postgres for that.
+    ids = [row[0] for row in conn.execute("DELETE FROM users RETURNING id").fetchall()]
+    count = len(ids)
+    conn.commit()
+    if ids:
+        _cache_invalidate(cache, *ids)
     return {"detail": f"deleted {count} user(s) from the database"}
